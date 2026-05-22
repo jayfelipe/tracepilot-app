@@ -1,6 +1,11 @@
+// /app/privacy/page.tsx
+
 import React from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ShieldCheck, Database, Key, Eye, Users, Globe, Lock, Trash2, Mail, ExternalLink } from 'lucide-react';
+import { 
+  ArrowLeft, ShieldCheck, Database, Key, Eye, Users, Globe, 
+  Lock, Trash2, Mail, RefreshCw 
+} from 'lucide-react';
 
 const SECTIONS = [
   {
@@ -56,7 +61,6 @@ const SECTIONS = [
         desc: 'Used as our backend infrastructure provider for authentication and data storage. Supabase\'s Privacy Policy: https://supabase.com/privacy',
       },
     ],
-    hasLinks: true,
   },
   {
     icon: Lock,
@@ -125,16 +129,6 @@ const SECTIONS = [
     ],
   },
 ];
-
-// Reusing the same icon from lucide to avoid import issues
-const RefreshCw = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-    <path d="M21 3v5h-5" />
-    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-    <path d="M8 16H3v5" />
-  </svg>
-);
 
 export default function PrivacyPage() {
   return (
