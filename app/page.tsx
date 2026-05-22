@@ -1367,8 +1367,13 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-6 text-[11px] flex-wrap justify-center font-sans">
-            <a href="#problem" className="hover:text-neutral-300 transition">{d.navProblem}</a>
-            <a href="#time-travel" className="hover:text-neutral-300 transition">{d.navTimeTravel}</a>
+            {/* Replaced The Problem & Time-Travel with Legal Links */}
+            <a href="/terms" className="hover:text-neutral-300 transition">
+              {lang === 'es' ? 'Términos' : 'Terms'}
+            </a>
+            <a href="/privacy" className="hover:text-neutral-300 transition">
+              {lang === 'es' ? 'Privacidad' : 'Privacy'}
+            </a>
             <button 
               onClick={() => setContactModalOpen(true)}
               className="hover:text-neutral-300 transition cursor-pointer text-[11px]"
