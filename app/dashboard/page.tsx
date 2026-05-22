@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -464,40 +464,66 @@ export default function DashboardPage() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // ── 1. Función aislada para obtener trazas ──
+  const fetchTraces = useCallback(async () => {
+    try {
+      const traceRes = await fetch("/api/traces");
+      const traceData = await traceRes.json();
+      const newTraces = Array.isArray(traceData) ? traceData : [];
+
+      // Evitar parpadeos: solo actualizamos el estado si las trazas son diferentes
+      setTraces(prevTraces => {
+        if (JSON.stringify(prevTraces) === JSON.stringify(newTraces)) {
+          return prevTraces; // Mismo contenido, retornamos la referencia anterior (React no re-renderiza)
+        }
+        return newTraces; // Contenido nuevo, actualizamos el estado
+      });
+    } catch (err) {
+      console.error("Dashboard trace poll error:", err);
+    }
+  }, []);
+
+  // ── 2. Inicialización del Dashboard (Sesión y API Key) ──
   useEffect(() => {
     const initializeDashboard = async () => {
-      // 1. Verificar sesión
+      // Verificar sesión
       const { data: { session } } = await supabase.auth.getSession();
       
       if (!session) {
-        router.push("/"); // Si no está logueado, a la landing
+        router.push("/");
         return;
       }
 
       setUserEmail(session.user.email ?? null);
 
-      // 2. Obtener su API Key (usando la Service Role en el backend)
+      // Obtener su API Key
       const keyRes = await fetch("/api/api-keys");
       if (keyRes.ok) {
         const keyData = await keyRes.json();
-        setApiKey(keyData.api_key ?? null); // <--- CORRECCIÓN AQUÍ
+        setApiKey(keyData.api_key ?? null);
       }
 
-      // 3. Obtener trazas
-      try {
-        const traceRes = await fetch("/api/traces");
-        const traceData = await traceRes.json();
-        setTraces(Array.isArray(traceData) ? traceData : []);
-      } catch (err) {
-        console.error("Dashboard loaded API fallback standard state:", err);
-        setTraces([]);
-      }
-
+      // Obtener trazas por primera vez
+      await fetchTraces();
+      
       setLoading(false);
     };
 
     initializeDashboard();
-  }, [router, supabase]);
+  }, [router, supabase, fetchTraces]);
+
+  // ── 3. Polling: Auto-refresh cada 5 segundos ──
+  useEffect(() => {
+    // No iniciar el polling hasta que la carga inicial termine
+    if (loading) return;
+
+    const intervalId = setInterval(() => {
+      fetchTraces();
+    }, 5000); // 5000 milisegundos = 5 segundos
+
+    // Limpiar el intervalo si el usuario sale de la página
+    return () => clearInterval(intervalId);
+  }, [loading, fetchTraces]);
 
   if (loading) return (
     <div className="min-h-screen bg-[#050507] text-white flex items-center justify-center font-mono text-sm text-white/50 select-none">
@@ -616,7 +642,7 @@ export default function DashboardPage() {
               Live
             </span>
             <span className="w-px h-3.5 bg-white/10" />
-            <span className="text-[10px] font-mono text-white/20">Last 10 traces</span>
+            <span className="text-[10px] font-mono text-white/20">Last 10 traces · Auto-refreshing</span>
           </div>
 
           <div className="flex items-center gap-4">
