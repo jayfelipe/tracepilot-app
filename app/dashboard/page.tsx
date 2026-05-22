@@ -1,731 +1,1102 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Search,
+  RefreshCw,
+  Filter,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Zap,
+  Activity,
+  ArrowUpDown,
+  X,
+  Loader2,
+  CircleDot,
+  GitBranch,
+  Eye,
+  EyeOff,
+  GitFork,
+} from "lucide-react";
 
-// Mocking simple headless UI styles locally to prevent relative path build exceptions
-const Badge = ({ children, className = "", variant = "outline", ...props }: any) => (
-  <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-mono font-medium transition-colors border ${className}`} {...props}>
-    {children}
-  </span>
-);
+// ============================================================
+// TIPOS
+// ============================================================
+interface Span {
+  id: string;
+  trace_id: string;
+  parent_id: string | null;
+  name: string;
+  kind: string;
+  start_time: string;
+  end_time: string;
+  execution_time_ms: number;
+  status_code: number;
+  status_message: string;
+  attributes: Record<string, any>;
+  children: Span[];
+  tokens_used?: number; // <-- NUEVO
+  model?: string;       // <-- NUEVO
+}
 
-const Card = ({ children, className = "", ...props }: any) => (
-  <div className={`rounded-xl border border-white/[0.08] bg-[#0d0f14]/85 text-card-foreground shadow-xl ${className}`} {...props}>
-    {children}
-  </div>
-);
+interface Trace {
+  id: string;
+  trace_id: string;
+  name: string;
+  kind: string;
+  start_time: string;
+  end_time: string;
+  execution_time_ms: number;
+  status_code: number;
+  status_message: string;
+  attributes: Record<string, any>;
+  spans: Span[];
+  created_at: string;
+}
 
-const CardHeader = ({ children, className = "", ...props }: any) => (
-  <div className={`flex flex-col space-y-1.5 p-5 ${className}`} {...props}>
-    {children}
-  </div>
-);
+interface SpanNodeProps {
+  span: Span;
+  depth: number;
+  traceStartTime: string;
+  totalDurationMs: number;
+  expandedSpans: Set<string>;
+  toggleSpan: (id: string) => void;
+}
 
-const CardTitle = ({ children, className = "", ...props }: any) => (
-  <h3 className={`font-semibold leading-none tracking-tight ${className}`} {...props}>
-    {children}
-  </h3>
-);
+// ============================================================
+// HELPERS
+// ============================================================
+function formatTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString("es-ES", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      fractionalSecondDigits: 3,
+    });
+  } catch {
+    return iso;
+  }
+}
 
-const CardContent = ({ children, className = "", ...props }: any) => (
-  <div className={`p-5 pt-0 ${className}`} {...props}>
-    {children}
-  </div>
-);
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "short",
+    });
+  } catch {
+    return "";
+  }
+}
 
-const ScrollArea = ({ children, className = "", ...props }: any) => (
-  <div className={`overflow-y-auto h-full scrollbar-none ${className}`} {...props}>
-    {children}
-  </div>
-);
-
-// ─── SVG Icons ─────────────────────────────────────────────────────────────
-
-function IconBrain({ className = "" }: { className?: string }) {
+function getKindBadge(kind: string) {
+  const map: Record<string, { label: string; color: string; bg: string }> = {
+    CLIENT: {
+      label: "CLIENT",
+      color: "text-sky-400",
+      bg: "bg-sky-500/10 border-sky-500/20",
+    },
+    SERVER: {
+      label: "SERVER",
+      color: "text-violet-400",
+      bg: "bg-violet-500/10 border-violet-500/20",
+    },
+    PRODUCER: {
+      label: "PRODUCER",
+      color: "text-amber-400",
+      bg: "bg-amber-500/10 border-amber-500/20",
+    },
+    CONSUMER: {
+      label: "CONSUMER",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10 border-emerald-500/20",
+    },
+    INTERNAL: {
+      label: "INTERNAL",
+      color: "text-zinc-400",
+      bg: "bg-zinc-500/10 border-zinc-500/20",
+    },
+  };
   return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-3 2.5 2.5 0 0 1 .09-3.53 2.5 2.5 0 0 1 0-4 2.5 2.5 0 0 1 3.44-3.5Z"/>
-      <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-3 2.5 2.5 0 0 0-.09-3.53 2.5 2.5 0 0 0 0-4 2.5 2.5 0 0 0-3.44-3.5Z"/>
-    </svg>
+    map[kind?.toUpperCase()] || {
+      label: kind || "UNKNOWN",
+      color: "text-zinc-400",
+      bg: "bg-zinc-500/10 border-zinc-500/20",
+    }
   );
 }
 
-function IconTool({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-    </svg>
-  );
+function getStatusCodeStyle(code: number) {
+  if (code >= 200 && code < 300)
+    return {
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/15",
+      ring: "ring-emerald-500/30",
+    };
+  if (code >= 300 && code < 400)
+    return {
+      color: "text-sky-400",
+      bg: "bg-sky-500/15",
+      ring: "ring-sky-500/30",
+    };
+  if (code >= 400 && code < 500)
+    return {
+      color: "text-amber-400",
+      bg: "bg-amber-500/15",
+      ring: "ring-amber-500/30",
+    };
+  return {
+    color: "text-red-400",
+    bg: "bg-red-500/15",
+    ring: "ring-red-500/30",
+  };
 }
 
-function IconAlertTriangle({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-      <path d="M12 9v4"/><path d="M12 17h.01"/>
-    </svg>
-  );
-}
+// ============================================================
+// COMPONENTE: SpanNode (con renderData mejorado para LLMs)
+// ============================================================
+function SpanNode({
+  span,
+  depth,
+  traceStartTime,
+  totalDurationMs,
+  expandedSpans,
+  toggleSpan,
+}: SpanNodeProps) {
+  const hasChildren = span.children && span.children.length > 0;
+  const isExpanded = expandedSpans.has(span.id);
+  const kindBadge = getKindBadge(span.kind);
+  const statusStyle = getStatusCodeStyle(span.status_code);
 
-// ─── Span config ───────────────────────────────────────────────────────────
+  // Cálculo de posición en la waterfall
+  const spanStart = new Date(span.start_time).getTime();
+  const traceStart = new Date(traceStartTime).getTime();
+  const offsetMs = spanStart - traceStart;
+  const leftPercent =
+    totalDurationMs > 0 ? (offsetMs / totalDurationMs) * 100 : 0;
+  const widthPercent =
+    totalDurationMs > 0
+      ? Math.max((span.execution_time_ms / totalDurationMs) * 100, 0.5)
+      : 100;
 
-type SpanType = "llm_call" | "tool_call" | "error";
+  // Color de la barra según latencia
+  const barColor =
+    span.execution_time_ms > 800
+      ? "bg-red-500/70"
+      : span.execution_time_ms > 300
+        ? "bg-amber-500/60"
+        : "bg-cyan-500/50";
 
-interface SpanConfig {
-  icon: React.ReactNode;
-  label: string;
-  dotColor: string;
-  borderColor: string;
-  badgeClass: string;
-  headerBg: string;
-}
-
-const SPAN_CONFIG: Record<SpanType, SpanConfig> = {
-  llm_call: {
-    icon: <IconBrain className="text-cyan-400" />,
-    label: "LLM Call",
-    dotColor: "border-cyan-500/60 bg-cyan-500/10 text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.15)]",
-    borderColor: "border-cyan-500/20 hover:border-cyan-500/40",
-    badgeClass: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20",
-    headerBg: "bg-cyan-500/[0.04]",
-  },
-  tool_call: {
-    icon: <IconTool className="text-violet-400" />,
-    label: "Tool Call",
-    dotColor: "border-violet-500/60 bg-violet-500/10 text-violet-400 shadow-[0_0_10px_rgba(139,92,246,0.15)]",
-    borderColor: "border-violet-500/20 hover:border-violet-500/40",
-    badgeClass: "bg-violet-500/10 text-violet-400 border-violet-500/20 hover:bg-violet-500/20",
-    headerBg: "bg-violet-500/[0.04]",
-  },
-  error: {
-    icon: <IconAlertTriangle className="text-red-400" />,
-    label: "Error",
-    dotColor: "border-red-500/60 bg-red-500/10 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.15)]",
-    borderColor: "border-red-500/20 hover:border-red-500/40",
-    badgeClass: "bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20",
-    headerBg: "bg-red-500/[0.04]",
-  },
-};
-
-// ─── SpanNode ──────────────────────────────────────────────────────────────
-
-function SpanNode({ span }: { span: any; key?: any }) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isForking, setIsForking] = useState(false);
-  const [forkResult, setForkResult] = useState<any>(null);
-  const [editableInput, setEditableInput] = useState("");
-  
-  const type = (span.span_type as SpanType) in SPAN_CONFIG ? (span.span_type as SpanType) : "error";
-  const { icon, label, dotColor, borderColor, badgeClass, headerBg } = SPAN_CONFIG[type];
-
-  const renderData = (data: any) => {
-    if (!data) return "N/A";
-    if (typeof data === 'string') return data;
-    return JSON.stringify(data, null, 2);
+  // Función auxiliar para calcular costo estimado
+  const calculateCost = (model: string | undefined, tokens: number | undefined) => {
+    if (!tokens) return null;
+    // Precios aproximados de OpenAI por 1 token
+    const pricePerToken = model?.includes('gpt-4o') ? 0.000005 : 0.00000015; // GPT-4o vs Mini
+    const cost = tokens * pricePerToken;
+    return cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2);
   };
 
-  const handleFork = async () => {
-    setIsForking(true);
-    setForkResult(null);
-    
-    try {
-      console.log("Intentando hacer Fork de este texto:", editableInput);
-      const parsedMessages = JSON.parse(editableInput);
-      
-      const res = await fetch("/api/fork", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: parsedMessages,
-          model: span.model
-        })
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok || data.error) {
-        console.error("Error del servidor:", data.error);
-        setForkResult({ error: data.error || "Server error" });
-      } else {
-        setForkResult(data.newOutput);
+  // ============================================================
+  // MEJORA: renderData inteligente para JSON y LLM Content
+  // ============================================================
+  const renderData = (data: any): React.ReactNode => {
+    if (!data) return <span className="text-zinc-600 italic">N/A</span>;
+
+    let parsed = data;
+
+    // Intentar parsear si es string
+    if (typeof data === "string") {
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        // Si no es JSON válido, devolverlo como texto con saltos de línea
+        return (
+          <span className="whitespace-pre-wrap break-words text-zinc-300">
+            {data}
+          </span>
+        );
       }
-
-    } catch (err: any) {
-      console.error("Error crudo en el Fork:", err);
-      setForkResult({ error: `Error real: ${err.message}` });
-    } finally {
-      setIsForking(false);
     }
-  };
 
-  const handleToggleExpand = () => {
-    if (!isExpanded && !editableInput) {
-      setEditableInput(renderData(span.input_data));
-    }
-    setIsExpanded(!isExpanded);
-  };
-
-  return (
-    <div className="relative pl-8 pb-3 group">
-      {/* Vertical connector line */}
-      {span.children && span.children.length > 0 && (
-        <div className="absolute left-[11px] top-6 bottom-0 w-px bg-gradient-to-b from-white/[0.08] to-transparent group-last:bg-transparent" />
-      )}
-
-      {/* Timeline dot */}
-      <div className={`absolute left-0 top-2 w-[22px] h-[22px] rounded-full border ${dotColor} flex items-center justify-center`}>
-        {icon}
-      </div>
-
-      {/* Span card */}
-      <div className={`rounded-lg border ${borderColor} bg-[#0d0f14] transition-all duration-300 hover:shadow-[0_0_25px_rgba(6,182,212,0.04)]`}>
-        {/* Header */}
-        <div 
-          className={`px-3 py-2.5 border-b border-white/[0.06] ${headerBg} flex justify-between items-center cursor-pointer hover:bg-white/[0.02] transition-colors duration-200`}
-          onClick={handleToggleExpand}
-        >
-          <div className="flex items-center gap-2">
-            <Badge variant="outline" className={`${badgeClass} text-[10px] font-mono px-2 py-0.5 rounded-md`}>
-              {label}
-            </Badge>
-            {span.is_destructive && (
-              <Badge variant="outline" className="bg-amber-500/10 text-amber-400 border-amber-500/20 text-[10px] font-mono px-2 py-0.5 rounded-md flex items-center gap-1">
-                <IconAlertTriangle className="w-2.5 h-2.5" />
-                Destructive
-              </Badge>
-            )}
-            {span.model && (
-              <span className="text-[10px] text-white/30 font-mono">{span.model}</span>
-            )}
-            <span className="text-[9px] text-white/20 font-mono ml-1">
-              {isExpanded ? "▼ Collapse" : "► Expand"}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 text-[11px] font-mono text-white/30">
-            {span.tokens_used && (
-              <span className="flex items-center gap-1 text-amber-400/60">
-                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                {span.tokens_used} tokens
-              </span>
-            )}
-            {span.execution_time_ms && (
-              <span className="flex items-center gap-1">
-                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                {span.execution_time_ms}ms
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Body */}
-        {isExpanded && (
-          <div className="px-3 py-2.5 space-y-3">
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <span className="text-[9px] font-mono tracking-widest text-white/20 uppercase">Input</span>
-                {type === "llm_call" && Array.isArray(span.input_data) && (
-                  <button 
-                    onClick={handleFork} 
-                    disabled={isForking}
-                    className="text-[9px] font-mono px-2.5 py-1 rounded-md bg-cyan-500 hover:bg-cyan-400 text-black font-bold shadow-lg shadow-cyan-950/30 transition-all disabled:opacity-50 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:shadow-none flex items-center gap-1"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-                    {isForking ? "Forking..." : "⟳ Fork & Rerun"}
-                  </button>
-                )}
-              </div>
-              {/* Input editable si es LLM */}
-              {type === "llm_call" ? (
-                <div className="relative rounded-md overflow-hidden border border-white/[0.06]">
-                  <div className="flex items-center justify-between px-2.5 py-1 bg-white/[0.02] border-b border-white/[0.06]">
-                    <span className="text-[8px] font-mono text-white/25 flex items-center gap-1.5">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                      tool_input.json
-                    </span>
-                    <span className="text-[8px] font-mono text-cyan-400/70 flex items-center gap-1">
-                      <span className="w-1 h-1 bg-cyan-400 rounded-full animate-pulse" />
-                      Editable
-                    </span>
-                  </div>
-                  <textarea 
-                    value={editableInput}
-                    onChange={(e) => setEditableInput(e.target.value)}
-                    className="w-full text-[11px] font-mono text-emerald-300/70 bg-[#070707] p-3 focus:outline-none focus:ring-1 focus:ring-cyan-500/30 resize-y min-h-[80px]"
-                    rows={4}
-                  />
-                </div>
-              ) : (
-                <div className="relative rounded-md overflow-hidden border border-white/[0.06]">
-                  <div className="flex items-center px-2.5 py-1 bg-white/[0.02] border-b border-white/[0.06]">
-                    <span className="text-[8px] font-mono text-white/25 flex items-center gap-1.5">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                      input.json
-                    </span>
-                    <span className="text-[8px] font-mono text-white/15 ml-auto">Read-Only</span>
-                  </div>
-                  <pre className="text-[11px] font-mono text-emerald-300/70 bg-[#070707] p-3 overflow-x-auto whitespace-pre-wrap break-words">
-                    {renderData(span.input_data)}
-                  </pre>
-                </div>
-              )}
-            </div>
-            
-            <div>
-              <span className="text-[9px] font-mono tracking-widest text-white/20 uppercase block mb-1.5">Original Output</span>
-              <div className="relative rounded-md overflow-hidden border border-white/[0.06]">
-                <div className="flex items-center justify-between px-2.5 py-1 bg-white/[0.02] border-b border-white/[0.06]">
-                  <span className="text-[8px] font-mono text-white/25 flex items-center gap-1.5">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/></svg>
-                    returned_payload
-                  </span>
-                  <span className="text-[8px] font-mono text-white/15">Read-Only</span>
-                </div>
-                <pre className="text-[11px] font-mono text-blue-300/50 bg-[#070707] p-3 overflow-x-auto whitespace-pre-wrap break-words opacity-50">
-                  {renderData(span.output_data)}
-                </pre>
-              </div>
-            </div>
-
-            {/* Mostrar resultado del Fork si existe */}
-            {forkResult && (
-              <div className="border-t border-cyan-500/20 pt-3">
-                <span className="text-[9px] font-mono tracking-widest text-cyan-400 uppercase block mb-1.5">🚀 Forked Output (New)</span>
-                <div className="relative rounded-md overflow-hidden border border-cyan-500/25 shadow-[0_0_20px_rgba(6,182,212,0.08)]">
-                  <div className="flex items-center justify-between px-2.5 py-1 bg-cyan-500/[0.06] border-b border-cyan-500/20">
-                    <span className="text-[8px] font-mono text-cyan-400/60 flex items-center gap-1.5">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                      forked_output.json
-                    </span>
-                    <span className="text-[8px] font-mono text-cyan-400 flex items-center gap-1">
-                      <span className="w-1 h-1 bg-cyan-400 rounded-full animate-pulse" />
-                      New
-                    </span>
-                  </div>
-                  <pre className="text-[11px] font-mono text-cyan-300 bg-[#060808] p-3 overflow-x-auto whitespace-pre-wrap break-words">
-                    {renderData(forkResult)}
-                  </pre>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Recursive children */}
-      {span.children && span.children.length > 0 && (
-        <div className="mt-2">
-          {span.children.map((child: any) => (
-            <SpanNode key={child.span_id} span={child} />
+    // Si es un array, iterar recursivamente
+    if (Array.isArray(parsed)) {
+      return (
+        <div className="space-y-3">
+          {parsed.map((item, idx) => (
+            <div key={idx}>{renderData(item)}</div>
           ))}
         </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Empty State Component (High Fidelity Landing Essence) ──────────────────
-
-function EmptyState({ apiKey }: { apiKey: string | null }) {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-
-  const handleCopy = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
-
-  const steps = [
-    {
-      label: "1. Install the SDK:",
-      code: "npm install tracepilot-sdk"
-    },
-    {
-      label: "2. Add your API Key to your code:",
-      code: `const tp = new TracePilot('${apiKey || 'tp_live_...'}')`
-    },
-    {
-      label: "3. Wrap your OpenAI calls:",
-      code: "await tp.wrapOpenAI(openai.chat.completions.create({\n  model: 'gpt-4o',\n  messages\n}))"
+      );
     }
-  ];
 
-  return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-xl p-8 max-w-xl mx-auto my-12 shadow-[0_0_50px_rgba(6,182,212,0.03)] group">
-      
-      {/* Background ambient glow inside the card */}
-      <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-500/[0.02] group-hover:bg-cyan-500/[0.04] blur-3xl transition-all duration-500 rounded-full pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-48 h-48 bg-violet-500/[0.01] group-hover:bg-violet-500/[0.02] blur-3xl transition-all duration-500 rounded-full pointer-events-none" />
+    // Si es un objeto
+    if (typeof parsed === "object" && parsed !== null) {
+      // Detectar si es un mensaje tipo LLM (role + content)
+      if ("role" in parsed && "content" in parsed) {
+        const roleColors: Record<string, string> = {
+          assistant:
+            "bg-violet-500/15 text-violet-400 border-violet-500/30",
+          user: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+          system: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+          tool: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+        };
+        const colorClass =
+          roleColors[parsed.role] ||
+          "bg-zinc-500/15 text-zinc-400 border-zinc-500/30";
 
-      {/* Header section with brain emoji or glowing icon */}
-      <div className="text-center space-y-4 mb-8 select-none">
-        <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-cyan-500/10 border border-cyan-500/20 shadow-[0_0_15px_rgba(6,182,212,0.15)] animate-pulse">
-          <svg className="w-5 h-5 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="16 18 22 12 16 6" />
-            <polyline points="8 6 2 12 8 18" />
-            <line x1="12" y1="2" x2="12" y2="22" />
-          </svg>
-        </div>
-        <div className="space-y-1.5">
-          <h3 className="text-base font-bold font-display text-white tracking-tight">
-            No traces yet. Let's connect your first agent!
-          </h3>
-          <p className="text-[11px] text-neutral-400 font-sans max-w-sm mx-auto leading-relaxed">
-            TracePilot listens in high fidelity. Get started by feeding telemetry from your favorite frameworks in under 2 minutes.
-          </p>
-        </div>
-      </div>
-
-      {/* Copyable steps section */}
-      <div className="space-y-5">
-        {steps.map((step, idx) => (
-          <div key={idx} className="space-y-2">
-            <h4 className="text-xs font-semibold text-neutral-300 font-sans flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-500/50" />
-              {step.label}
-            </h4>
-            <div className="relative group/code flex items-center justify-between border border-white/[0.05] hover:border-white/[0.12] bg-[#040507] rounded-lg p-3.5 w-full transition-all duration-200">
-              <pre className="text-left font-mono text-[10.5px] text-emerald-400/85 overflow-x-auto pr-12 scrollbar-none whitespace-pre-wrap break-all">
-                {step.code}
-              </pre>
-              <button
-                onClick={() => handleCopy(step.code, idx)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-mono font-bold bg-[#0d0f14] hover:bg-neutral-900 border border-white/[0.08] hover:border-white/[0.18] text-neutral-400 hover:text-white px-2.5 py-1 rounded cursor-pointer transition-all duration-150 active:scale-95"
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${colorClass}`}
               >
-                {copiedIndex === idx ? "Copied! ✓" : "Copy"}
-              </button>
-            </div>
-          </div>
-        ))}
-        
-        {/* Dedicated API Key Section if exists */}
-        {apiKey && (
-          <div className="space-y-2 pt-4 border-t border-white/[0.05]">
-            <h4 className="text-xs font-semibold text-neutral-300 font-sans flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/50" />
-              Your Personal API Key
-            </h4>
-            <div className="relative group/code flex items-center justify-between border border-cyan-500/10 hover:border-cyan-500/30 bg-[#040507] rounded-lg p-3.5 w-full transition-all duration-200">
-              <pre className="text-left font-mono text-[10.5px] text-cyan-300/85 overflow-x-auto pr-12 scrollbar-none whitespace-pre-wrap break-all">
-                {apiKey}
-              </pre>
-              <button
-                onClick={() => handleCopy(apiKey, 3)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-mono font-bold bg-[#0d0f14] hover:bg-neutral-900 border border-white/[0.08] hover:border-white/[0.18] text-neutral-400 hover:text-white px-2.5 py-1 rounded cursor-pointer transition-all duration-150 active:scale-95"
-              >
-                {copiedIndex === 3 ? "Copied! ✓" : "Copy"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Blinking Live pulse status */}
-      <div className="mt-8 pt-6 border-t border-white/[0.05] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs select-none">
-        <div className="inline-flex items-center space-x-2 text-[11px] font-mono text-emerald-400">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-450 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
-          </span>
-          <span className="font-semibold">Waiting for incoming traces...</span>
-        </div>
-
-        {/* Back to website button */}
-        <button
-          onClick={() => {
-            if (typeof window !== 'undefined') {
-              window.location.href = '/';
-            }
-          }}
-          className="text-neutral-400 hover:text-white font-semibold font-sans tracking-wide text-[11px] hover:underline inline-flex items-center gap-1.5 cursor-pointer"
-        >
-          <span>Exit Dashboard</span>
-          <svg className="w-3.5 h-3.5 text-neutral-400 hover:text-white transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12" />
-            <polyline points="12 5 19 12 12 19" />
-          </svg>
-        </button>
-      </div>
-
-    </div>
-  );
-}
-
-// ─── Main Page Component ───────────────────────────────────────────────────
-
-export default function DashboardPage() {
-  const supabase = createClient();
-  const router = useRouter();
-  
-  const [traces, setTraces] = useState<any[]>([]);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // ── 1. Función aislada para obtener trazas ──
-  const fetchTraces = useCallback(async () => {
-    try {
-      const traceRes = await fetch("/api/traces");
-      const traceData = await traceRes.json();
-      const newTraces = Array.isArray(traceData) ? traceData : [];
-
-      // Evitar parpadeos: solo actualizamos el estado si las trazas son diferentes
-      setTraces(prevTraces => {
-        if (JSON.stringify(prevTraces) === JSON.stringify(newTraces)) {
-          return prevTraces; // Mismo contenido, retornamos la referencia anterior (React no re-renderiza)
-        }
-        return newTraces; // Contenido nuevo, actualizamos el estado
-      });
-    } catch (err) {
-      console.error("Dashboard trace poll error:", err);
-    }
-  }, []);
-
-  // ── 2. Inicialización del Dashboard (Sesión y API Key) ──
-  useEffect(() => {
-    const initializeDashboard = async () => {
-      // Verificar sesión
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        router.push("/");
-        return;
-      }
-
-      setUserEmail(session.user.email ?? null);
-
-      // Obtener su API Key
-      const keyRes = await fetch("/api/api-keys");
-      if (keyRes.ok) {
-        const keyData = await keyRes.json();
-        setApiKey(keyData.api_key ?? null);
-      }
-
-      // Obtener trazas por primera vez
-      await fetchTraces();
-      
-      setLoading(false);
-    };
-
-    initializeDashboard();
-  }, [router, supabase, fetchTraces]);
-
-  // ── 3. Polling: Auto-refresh cada 5 segundos ──
-  useEffect(() => {
-    // No iniciar el polling hasta que la carga inicial termine
-    if (loading) return;
-
-    const intervalId = setInterval(() => {
-      fetchTraces();
-    }, 5000); // 5000 milisegundos = 5 segundos
-
-    // Limpiar el intervalo si el usuario sale de la página
-    return () => clearInterval(intervalId);
-  }, [loading, fetchTraces]);
-
-  if (loading) return (
-    <div className="min-h-screen bg-[#050507] text-white flex items-center justify-center font-mono text-sm text-white/50 select-none">
-      Loading Secure Dashboard...
-    </div>
-  );
-
-  return (
-    <div className="min-h-screen bg-[#050507] text-white flex font-sans relative select-none">
-
-      {/* Ambient background glow matching landing page design */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-0 left-1/4 w-[800px] h-[600px] bg-cyan-500/[0.015] rounded-full blur-[150px]" />
-        <div className="absolute bottom-0 right-1/4 w-[600px] h-[500px] bg-violet-500/[0.01] rounded-full blur-[130px]" />
-      </div>
-
-      {/* ── Sidebar ── */}
-      <aside className="w-60 border-r border-white/[0.06] bg-[#08090d] flex-col hidden md:flex relative z-10">
-
-        {/* Subtle top accent line */}
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/25 to-transparent" />
-
-        {/* Logo */}
-        <a href="#/" className="h-16 flex items-center px-5 border-b border-white/[0.06] relative overflow-hidden flex-shrink-0 cursor-pointer">
-          <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/[0.03] to-transparent pointer-events-none" />
-          <img
-            src="/logo.png"
-            alt="TracePilot AI"
-            className="object-contain object-left w-auto h-24 relative z-10"
-          />
-        </a>
-
-        {/* Workspace indicator */}
-        <div className="px-4 pt-5 pb-3">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-            <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.5)]" />
-            <span className="text-[11px] font-mono text-white/50">Production</span>
-            <span className="text-[9px] font-mono text-white/20 ml-auto">v0.1.0</span>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-4 space-y-0.5">
-          <p className="px-2 pt-1 pb-2 text-[9px] font-mono tracking-widest text-white/20 uppercase">
-            Observability
-          </p>
-          {[
-            { label: "Traces", active: true, soon: false },
-            { label: "Agents", active: false, soon: true },
-            { label: "Costs", active: false, soon: true },
-          ].map(({ label, active, soon }) => (
-            <div
-              key={label}
-              className={`relative flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-all duration-150 ${
-                active
-                  ? "bg-white/[0.06] text-white font-medium"
-                  : soon 
-                  ? "text-white/15 cursor-not-allowed"
-                  : "text-white/30 hover:text-white/60 hover:bg-white/[0.03] cursor-pointer"
-              }`}
-            >
-              {active && (
-                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.4)]" />
+                {String(parsed.role).toUpperCase()}
+              </span>
+              {parsed.model && (
+                <span className="text-[9px] font-mono text-zinc-600">
+                  model: {parsed.model}
+                </span>
               )}
-              {label}
-              {soon && (
-                <span className="text-[8px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-white/25 ml-auto">
-                  SOON
+              {parsed.refusal && (
+                <span className="text-[9px] font-mono text-red-400">
+                  ⚠ Refusal
                 </span>
               )}
             </div>
-          ))}
-        </nav>
+            <div className="text-[11px] font-mono text-zinc-300 whitespace-pre-wrap break-words leading-relaxed bg-black/20 p-2.5 rounded border border-white/[0.04]">
+              {String(parsed.content)}
+            </div>
+            {parsed.annotations && parsed.annotations.length > 0 && (
+              <div className="text-[9px] text-zinc-600 mt-1">
+                Annotations: {JSON.stringify(parsed.annotations)}
+              </div>
+            )}
+          </div>
+        );
+      }
 
-        {/* Exit link in Sidebar footer */}
-        <div className="px-4 py-2">
-          <button
-            onClick={() => {
-              if (typeof window !== 'undefined') {
-                window.location.href = '/';
-              }
-            }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-neutral-400 hover:text-white hover:bg-neutral-900/40 transition cursor-pointer font-sans"
+      // Objeto genérico: formatear como JSON bonito
+      return (
+        <pre className="whitespace-pre-wrap break-words text-zinc-400 text-[10px]">
+          {JSON.stringify(parsed, null, 2)}
+        </pre>
+      );
+    }
+
+    // Fallback para primitivos
+    return <span className="text-zinc-400">{String(parsed)}</span>;
+  };
+
+  return (
+    <>
+      <div
+        className="group flex items-center gap-2 py-1.5 px-3 hover:bg-white/[0.02] transition-colors duration-150"
+        style={{ paddingLeft: `${depth * 24 + 12}px` }}
+      >
+        {/* Toggle expandir/colapsar */}
+        <button
+          onClick={() => hasChildren && toggleSpan(span.id)}
+          className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded transition-colors ${
+            hasChildren
+              ? "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+              : "text-transparent"
+          }`}
+        >
+          {hasChildren &&
+            (isExpanded ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            ))}
+        </button>
+
+        {/* Nombre del span */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className="text-[11px] font-mono text-zinc-300 truncate">
+            {span.name}
+          </span>
+
+          {/* Badge Kind */}
+          <span
+            className={`flex-shrink-0 text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded border ${kindBadge.bg} ${kindBadge.color}`}
           >
-            <svg className="w-4 h-4 text-neutral-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            <span>Exit Dashboard</span>
-          </button>
-        </div>
+            {kindBadge.label}
+          </span>
 
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-white/[0.06] space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.4)]" />
-            <span className="text-[10px] font-mono text-white/30">All systems operational</span>
-          </div>
-          <p className="text-[9px] font-mono text-white/15">TracePilot AI · v0.1.0</p>
-        </div>
-      </aside>
-
-      {/* ── Main ── */}
-      <main className="flex-1 overflow-hidden flex flex-col relative z-10">
-
-        {/* Topbar */}
-        <header className="h-14 border-b border-white/[0.06] flex items-center px-6 justify-between bg-[#08090d]/85 backdrop-blur-md shrink-0 relative">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/15 to-transparent" />
-          
-          <div className="flex items-center gap-3">
-            <h2 className="text-xs font-mono text-white/40">Traces</h2>
-            <span className="w-px h-3.5 bg-white/10" />
-            <span className="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400/80">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(16,185,129,0.5)]" />
-              Live
+          {/* Status Code */}
+          {span.status_code > 0 && (
+            <span
+              className={`flex-shrink-0 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ring-1 ${statusStyle.bg} ${statusStyle.color} ${statusStyle.ring}`}
+            >
+              {span.status_code}
             </span>
-            <span className="w-px h-3.5 bg-white/10" />
-            <span className="text-[10px] font-mono text-white/20">Last 10 traces · Auto-refreshing</span>
-          </div>
+          )}
+        </div>
 
-          <div className="flex items-center gap-4">
-            <div className="hidden sm:flex items-center gap-3 text-[10px] font-mono text-white/25">
-              <span className="flex items-center gap-1">
-                <span className="text-cyan-400/65 font-bold">LAT:</span> 142ms
+        {/* Waterfall bar */}
+        <div className="w-48 flex-shrink-0 relative h-4">
+          <div
+            className={`absolute top-0.5 h-3 rounded-sm ${barColor} transition-all duration-300`}
+            style={{
+              left: `${leftPercent}%`,
+              width: `${widthPercent}%`,
+            }}
+          />
+        </div>
+
+        {/* Duración */}
+        <span
+          className={`flex-shrink-0 text-[10px] font-mono w-20 text-right ${
+            span.execution_time_ms > 800
+              ? "text-red-400 font-bold"
+              : span.execution_time_ms > 300
+                ? "text-amber-400 font-semibold"
+                : "text-zinc-500"
+          }`}
+        >
+          {span.execution_time_ms.toFixed(1)}ms
+        </span>
+      </div>
+
+      {/* Detalle expandido */}
+      {isExpanded && (
+        <div
+          className="border-t border-b border-white/[0.04] bg-white/[0.01]"
+          style={{ paddingLeft: `${depth * 24 + 44}px` }}
+        >
+          <div className="py-3 pr-4 space-y-3">
+            {/* Tiempos */}
+            <div className="flex gap-6 text-[10px] font-mono">
+              <span className="text-zinc-600">
+                Start:{" "}
+                <span className="text-zinc-400">
+                  {formatTime(span.start_time)}
+                </span>
               </span>
-              <span className="text-white/10">|</span>
-              <span className="flex items-center gap-1">
-                <span className="text-emerald-400/65 font-bold">RPS:</span> 98.2
+              <span className="text-zinc-600">
+                End:{" "}
+                <span className="text-zinc-400">
+                  {formatTime(span.end_time)}
+                </span>
+              </span>
+              <span className="text-zinc-600">
+                Duration:{" "}
+                <span
+                  className={
+                    span.execution_time_ms > 800
+                      ? "text-red-400 font-bold"
+                      : span.execution_time_ms > 300
+                        ? "text-amber-400"
+                        : "text-cyan-400"
+                  }
+                >
+                  {span.execution_time_ms.toFixed(2)}ms
+                </span>
               </span>
             </div>
 
-            {/* Back to website button in top header */}
-            <button
-              onClick={() => {
-                if (typeof window !== 'undefined') {
-                  window.location.href = '/';
-                }
-              }}
-              className="px-2.5 py-1.5 rounded-lg border border-white/[0.08] hover:border-white/[0.18] bg-[#0c0d12] hover:bg-neutral-900 text-[10px] text-neutral-300 hover:text-white transition-all flex items-center gap-1.5 font-mono cursor-pointer uppercase tracking-wider font-semibold"
-            >
-              <svg className="w-3 h-3 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-              <span>Exit Console</span>
-            </button>
-          </div>
-        </header>
-
-        {/* Content */}
-        <ScrollArea className="flex-1 bg-[#050507]">
-          <div className="max-w-3xl mx-auto px-6 py-10 space-y-4">
-
-            {!loading && traces.length === 0 && (
-              <EmptyState apiKey={apiKey} />
+            {/* Status Message */}
+            {span.status_message && (
+              <div className="text-[10px] font-mono">
+                <span className="text-zinc-600">Status: </span>
+                <span
+                  className={
+                    span.status_code >= 400
+                      ? "text-red-400"
+                      : "text-zinc-400"
+                  }
+                >
+                  {span.status_message}
+                </span>
+              </div>
             )}
 
-            {!loading && traces.map((trace) => (
-              <Card
-                key={trace.trace_id}
-                className="bg-[#0d0f14] border-white/[0.07] overflow-hidden rounded-xl hover:border-cyan-500/20 hover:shadow-[0_0_30px_rgba(6,182,212,0.05)] transition-all duration-300"
-              >
-                {/* Trace header */}
-                <CardHeader className="border-b border-white/[0.06] bg-[#0f1118] px-5 py-4 relative">
-                  <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-                  <div className="flex justify-between items-start gap-4">
-                    <div className="min-w-0">
-                      <CardTitle className="text-sm font-semibold text-white leading-snug">
-                        {trace.agent_name}
-                      </CardTitle>
-                      <p className="text-[10px] font-mono text-white/25 mt-1 truncate">
-                        trace_id: {trace.trace_id}
-                      </p>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className="shrink-0 text-[10px] font-mono px-2 py-0.5 rounded-md border-emerald-500/25 bg-emerald-500/10 text-emerald-400 font-semibold"
-                    >
-                      {trace.status}
-                    </Badge>
+            {/* Tokens y Costo Estimado */}
+            {span.tokens_used && (
+              <span className="flex items-center gap-1 text-amber-400/60 text-[10px] font-mono">
+                <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                ${calculateCost(span.model, span.tokens_used) || '0.00'} / {span.tokens_used} tokens
+              </span>
+            )}
+
+            {/* Forked Output (Especial) */}
+            {span.attributes?.forked_output && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <GitFork className="w-3 h-3 text-cyan-500/70" />
+                  <span className="text-[9px] font-mono text-cyan-500/80 uppercase tracking-wider font-bold">
+                    Forked Output
+                  </span>
+                </div>
+                <div className="bg-cyan-500/[0.03] border border-cyan-500/10 rounded p-2.5 max-h-80 overflow-auto">
+                  {renderData(span.attributes.forked_output)}
+                </div>
+              </div>
+            )}
+
+            {/* Attributes generales */}
+            {span.attributes &&
+              Object.keys(span.attributes).length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-wider">
+                    Attributes
+                  </span>
+                  <div className="bg-black/30 rounded border border-white/[0.04] p-2.5 max-h-64 overflow-auto">
+                    {renderData(span.attributes)}
                   </div>
-                </CardHeader>
-
-                {/* Spans */}
-                <CardContent className="px-5 pt-5 pb-4">
-                  {trace.spans && trace.spans.length > 0 ? (
-                    trace.spans.map((rootSpan: any) => (
-                      <SpanNode key={rootSpan.span_id} span={rootSpan} />
-                    ))
-                  ) : (
-                    <p className="text-xs font-mono text-white/20 py-2">
-                      No activity recorded.
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-
+                </div>
+              )}
           </div>
-        </ScrollArea>
-      </main>
+        </div>
+      )}
+
+      {/* Hijos recursivos */}
+      {hasChildren &&
+        isExpanded &&
+        span.children.map((child) => (
+          <SpanNode
+            key={child.id}
+            span={child}
+            depth={depth + 1}
+            traceStartTime={traceStartTime}
+            totalDurationMs={totalDurationMs}
+            expandedSpans={expandedSpans}
+            toggleSpan={toggleSpan}
+          />
+        ))}
+    </>
+  );
+}
+
+// ============================================================
+// COMPONENTE PRINCIPAL: Dashboard
+// ============================================================
+export default function DashboardPage() {
+  const [traces, setTraces] = useState<Trace[]>([]);
+  const [latency, setLatency] = useState(0);
+  const [rps, setRps] = useState(0);
+
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterKind, setFilterKind] = useState<string>("ALL");
+  const [filterStatus, setFilterStatus] = useState<string>("ALL");
+  const [sortBy, setSortBy] = useState<"time" | "duration" | "name">("time");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [selectedTrace, setSelectedTrace] = useState<Trace | null>(null);
+  const [expandedSpans, setExpandedSpans] = useState<Set<string>>(new Set());
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+
+  // ============================================================
+  // Calcular métricas en tiempo real
+  // ============================================================
+  useEffect(() => {
+    if (traces.length === 0) {
+      setLatency(0);
+      setRps(0);
+      return;
+    }
+
+    // 1. Calcular Latencia Promedio (LAT)
+    let totalMs = 0;
+    let spanCount = 0;
+
+    const sumSpanTimes = (spans: Span[]) => {
+      spans.forEach((span) => {
+        totalMs += span.execution_time_ms || 0;
+        spanCount++;
+        if (span.children && span.children.length > 0) {
+          sumSpanTimes(span.children);
+        }
+      });
+    };
+
+    traces.forEach((trace) => {
+      if (trace.spans) sumSpanTimes(trace.spans);
+    });
+
+    const avgLatency = spanCount > 0 ? Math.round(totalMs / spanCount) : 0;
+    setLatency(avgLatency);
+
+    // 2. Calcular Requests Por Segundo (RPS)
+    if (traces.length >= 2) {
+      const oldestTraceTime = new Date(
+        traces[traces.length - 1].created_at
+      ).getTime();
+      const newestTraceTime = new Date(traces[0].created_at).getTime();
+      const diffSeconds = (newestTraceTime - oldestTraceTime) / 1000;
+
+      if (diffSeconds > 0) {
+        setRps(parseFloat((traces.length / diffSeconds).toFixed(1)));
+      } else {
+        setRps(traces.length);
+      }
+    } else {
+      setRps(0.1);
+    }
+  }, [traces]);
+
+  // Fetch traces
+  const fetchTraces = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      const res = await fetch("/api/traces");
+      if (!res.ok) throw new Error("Error cargando trazas");
+      const data = await res.json();
+      setTraces(data);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || "Error desconocido");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTraces();
+  }, [fetchTraces]);
+
+  // Auto-refresh
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(fetchTraces, 5000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, fetchTraces]);
+
+  // Toggle span expand/collapse
+  const toggleSpan = (id: string) => {
+    setExpandedSpans((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Expandir todos los spans de una traza
+  const expandAllSpans = (spans: Span[], expand: boolean) => {
+    const ids = new Set<string>();
+    const collect = (s: Span[]) => {
+      s.forEach((span) => {
+        ids.add(span.id);
+        if (span.children) collect(span.children);
+      });
+    };
+    collect(spans);
+    if (expand) {
+      setExpandedSpans((prev) => new Set([...prev, ...ids]));
+    } else {
+      setExpandedSpans((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+  };
+
+  // Filtrado y ordenación
+  const filteredTraces = traces
+    .filter((t) => {
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const matchName = t.name?.toLowerCase().includes(q);
+        const matchTraceId = t.trace_id?.toLowerCase().includes(q);
+        if (!matchName && !matchTraceId) return false;
+      }
+      if (filterKind !== "ALL" && t.kind?.toUpperCase() !== filterKind)
+        return false;
+      if (filterStatus === "OK" && t.status_code >= 400) return false;
+      if (filterStatus === "ERROR" && t.status_code < 400) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === "time") {
+        cmp =
+          new Date(b.created_at).getTime() -
+          new Date(a.created_at).getTime();
+      } else if (sortBy === "duration") {
+        cmp = b.execution_time_ms - a.execution_time_ms;
+      } else {
+        cmp = a.name.localeCompare(b.name);
+      }
+      return sortDir === "asc" ? -cmp : cmp;
+    });
+
+  // Helper: clase de color para latencia
+  const getLatencyColorClass = (ms: number) => {
+    if (ms > 800) return "text-red-400 font-bold animate-pulse";
+    if (ms > 300) return "text-amber-400 font-semibold";
+    if (ms >= 1) return "text-emerald-400";
+    return "text-zinc-500";
+  };
+
+  // Contar spans totales de una traza
+  const countSpans = (spans: Span[]): number => {
+    let count = 0;
+    spans.forEach((s) => {
+      count++;
+      if (s.children) count += countSpans(s.children);
+    });
+    return count;
+  };
+
+  // ============================================================
+  // RENDER: Loading
+  // ============================================================
+  if (loading) {
+    return (
+      <div className="h-screen bg-[#0a0a0b] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin" />
+          <span className="text-sm font-mono text-zinc-500">
+            Cargando trazas...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // RENDER: Dashboard
+  // ============================================================
+  return (
+    <div className="h-screen bg-[#0a0a0b] flex flex-col overflow-hidden">
+      {/* ======================================================== */}
+      {/* TOPBAR */}
+      {/* ======================================================== */}
+      <header className="flex-shrink-0 border-b border-white/[0.06] bg-[#0d0d0f]/80 backdrop-blur-xl">
+        <div className="flex items-center justify-between px-4 h-11">
+          {/* Left: Logo + Título */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.5)]" />
+              <span className="text-xs font-semibold tracking-wide text-zinc-200">
+                TraceViewer
+              </span>
+            </div>
+            <span className="text-white/[0.06]">|</span>
+            <span className="text-[10px] font-mono text-zinc-600">
+              {filteredTraces.length} trazas
+            </span>
+          </div>
+
+          {/* Métricas dinámicas LAT / RPS con colores */}
+          <div className="hidden sm:flex items-center gap-3 text-[10px] font-mono text-white/25">
+            <span className="flex items-center gap-1">
+              <span className="text-cyan-400/65 font-bold">LAT:</span>
+              <span className={getLatencyColorClass(latency)}>
+                {latency}ms
+              </span>
+            </span>
+            <span className="text-white/10">|</span>
+            <span className="flex items-center gap-1">
+              <span className="text-emerald-400/65 font-bold">RPS:</span>
+              <span
+                className={`${rps > 50 ? "text-amber-400 font-bold" : ""}`}
+              >
+                {rps}
+              </span>
+            </span>
+          </div>
+
+          {/* Right: Controles */}
+          <div className="flex items-center gap-2">
+            {/* Auto-refresh toggle */}
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded transition-colors ${
+                autoRefresh
+                  ? "text-cyan-400 bg-cyan-500/10"
+                  : "text-zinc-600 bg-white/[0.03]"
+              }`}
+            >
+              <Activity className="w-3 h-3" />
+              <span className="hidden md:inline">Live</span>
+            </button>
+
+            {/* Refresh manual */}
+            <button
+              onClick={fetchTraces}
+              className="text-zinc-600 hover:text-zinc-300 p-1 rounded hover:bg-white/5 transition-colors"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* ======================================================== */}
+      {/* TOOLBAR: Búsqueda y filtros */}
+      {/* ======================================================== */}
+      <div className="flex-shrink-0 border-b border-white/[0.04] bg-[#0c0c0e]">
+        <div className="flex items-center gap-2 px-4 h-10">
+          {/* Búsqueda */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por nombre o trace ID..."
+              className="w-full bg-white/[0.03] border border-white/[0.06] rounded pl-8 pr-3 py-1.5 text-[11px] font-mono text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:border-cyan-500/30 focus:ring-1 focus:ring-cyan-500/20 transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {/* Filtro Kind */}
+          <select
+            value={filterKind}
+            onChange={(e) => setFilterKind(e.target.value)}
+            className="bg-white/[0.03] border border-white/[0.06] rounded px-2 py-1.5 text-[11px] font-mono text-zinc-400 focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
+          >
+            <option value="ALL">Todo Kind</option>
+            <option value="CLIENT">CLIENT</option>
+            <option value="SERVER">SERVER</option>
+            <option value="PRODUCER">PRODUCER</option>
+            <option value="CONSUMER">CONSUMER</option>
+            <option value="INTERNAL">INTERNAL</option>
+          </select>
+
+          {/* Filtro Status */}
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="bg-white/[0.03] border border-white/[0.06] rounded px-2 py-1.5 text-[11px] font-mono text-zinc-400 focus:outline-none focus:border-cyan-500/30 appearance-none cursor-pointer"
+          >
+            <option value="ALL">Todo Status</option>
+            <option value="OK">OK (2xx-3xx)</option>
+            <option value="ERROR">Error (4xx-5xx)</option>
+          </select>
+
+          {/* Sort */}
+          <button
+            onClick={() => {
+              if (sortBy === "time") setSortBy("duration");
+              else if (sortBy === "duration") setSortBy("name");
+              else setSortBy("time");
+            }}
+            className="flex items-center gap-1 text-[10px] font-mono text-zinc-600 hover:text-zinc-400 px-2 py-1.5 rounded bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
+          >
+            <ArrowUpDown className="w-3 h-3" />
+            {sortBy === "time"
+              ? "Tiempo"
+              : sortBy === "duration"
+                ? "Duración"
+                : "Nombre"}
+          </button>
+
+          <button
+            onClick={() =>
+              setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+            }
+            className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 px-2 py-1.5 rounded bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
+          >
+            {sortDir === "desc" ? "↓" : "↑"}
+          </button>
+        </div>
+      </div>
+
+      {/* ======================================================== */}
+      {/* CONTENIDO PRINCIPAL */}
+      {/* ======================================================== */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* ====================================================== */}
+        {/* LISTA DE TRAZAS (izquierda) */}
+        {/* ====================================================== */}
+        <div
+          className={`${
+            selectedTrace ? "w-72 lg:w-80" : "w-full"
+          } flex-shrink-0 border-r border-white/[0.04] flex flex-col transition-all duration-300`}
+        >
+          {/* Error */}
+          {error && (
+            <div className="mx-3 mt-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded text-[11px] font-mono text-red-400 flex items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* Lista */}
+          <div className="flex-1 overflow-y-auto">
+            {filteredTraces.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-zinc-700">
+                <GitBranch className="w-8 h-8 mb-2" />
+                <span className="text-xs font-mono">
+                  {traces.length === 0
+                    ? "Sin trazas disponibles"
+                    : "Sin resultados"}
+                </span>
+              </div>
+            ) : (
+              <div className="divide-y divide-white/[0.03]">
+                {filteredTraces.map((trace) => {
+                  const isSelected = selectedTrace?.id === trace.id;
+                  const spanCount = trace.spans
+                    ? countSpans(trace.spans)
+                    : 0;
+                  const kindInfo = getKindBadge(trace.kind);
+                  const statusInfo = getStatusCodeStyle(trace.status_code);
+                  const isSlow = trace.execution_time_ms > 800;
+                  const isWarning =
+                    trace.execution_time_ms > 300 &&
+                    trace.execution_time_ms <= 800;
+
+                  return (
+                    <button
+                      key={trace.id}
+                      onClick={() => {
+                        setSelectedTrace(
+                          isSelected ? null : trace
+                        );
+                        if (!isSelected) {
+                          setExpandedSpans(new Set());
+                        }
+                      }}
+                      className={`w-full text-left px-3 py-2.5 transition-all duration-150 group ${
+                        isSelected
+                          ? "bg-cyan-500/[0.06] border-l-2 border-l-cyan-500/60"
+                          : "hover:bg-white/[0.02] border-l-2 border-l-transparent"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span
+                              className={`text-[11px] font-mono truncate ${
+                                isSelected
+                                  ? "text-zinc-200"
+                                  : "text-zinc-400 group-hover:text-zinc-300"
+                              }`}
+                            >
+                              {trace.name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`text-[8px] font-mono font-semibold px-1 py-0.5 rounded border ${kindInfo.bg} ${kindInfo.color}`}
+                            >
+                              {kindInfo.label}
+                            </span>
+                            {trace.status_code > 0 && (
+                              <span
+                                className={`text-[8px] font-mono font-bold px-1 py-0.5 rounded ${statusInfo.bg} ${statusInfo.color}`}
+                              >
+                                {trace.status_code}
+                              </span>
+                            )}
+                            {spanCount > 0 && (
+                              <span className="text-[8px] font-mono text-zinc-700">
+                                {spanCount} span{spanCount !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Duración + indicador visual */}
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          <span
+                            className={`text-[11px] font-mono font-medium ${
+                              isSlow
+                                ? "text-red-400"
+                                : isWarning
+                                  ? "text-amber-400"
+                                  : "text-zinc-500"
+                            }`}
+                          >
+                            {trace.execution_time_ms.toFixed(1)}ms
+                          </span>
+                          {/* Mini waterfall */}
+                          <div className="w-16 h-1 mt-1 bg-white/[0.03] rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${
+                                isSlow
+                                  ? "bg-red-500/60"
+                                  : isWarning
+                                    ? "bg-amber-500/50"
+                                    : "bg-cyan-500/40"
+                              }`}
+                              style={{
+                                width: `${Math.min(
+                                  (trace.execution_time_ms / 2000) * 100,
+                                  100
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Trace ID + tiempo */}
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-[9px] font-mono text-zinc-700 truncate max-w-[140px]">
+                          {trace.trace_id?.substring(0, 16)}...
+                        </span>
+                        <span className="text-[9px] font-mono text-zinc-700">
+                          {formatTime(trace.created_at)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ====================================================== */}
+        {/* DETALLE DE TRAZA (derecha) */}
+        {/* ====================================================== */}
+        {selectedTrace && (
+          <div className="flex-1 flex flex-col overflow-hidden bg-[#0b0b0d]">
+            {/* Header del detalle */}
+            <div className="flex-shrink-0 border-b border-white/[0.06] bg-[#0d0d0f] px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-200 mb-1">
+                    {selectedTrace.name}
+                  </h2>
+                  <div className="flex items-center gap-3 text-[10px] font-mono">
+                    <span className="text-zinc-600">
+                      Trace:{" "}
+                      <span className="text-zinc-400">
+                        {selectedTrace.trace_id}
+                      </span>
+                    </span>
+                    <span className="text-zinc-700">|</span>
+                    <span className="text-zinc-600">
+                      {formatDate(selectedTrace.created_at)}{" "}
+                      {formatTime(selectedTrace.start_time)} →{" "}
+                      {formatTime(selectedTrace.end_time)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/* Expand/Collapse all */}
+                  <button
+                    onClick={() =>
+                      expandAllSpans(selectedTrace.spans || [], true)
+                    }
+                    className="text-[9px] font-mono text-zinc-600 hover:text-zinc-400 px-2 py-1 rounded bg-white/[0.02] hover:bg-white/[0.04] transition-colors flex items-center gap-1"
+                  >
+                    <Eye className="w-3 h-3" />
+                    Expandir
+                  </button>
+                  <button
+                    onClick={() =>
+                      expandAllSpans(selectedTrace.spans || [], false)
+                    }
+                    className="text-[9px] font-mono text-zinc-600 hover:text-zinc-400 px-2 py-1 rounded bg-white/[0.02] hover:bg-white/[0.04] transition-colors flex items-center gap-1"
+                  >
+                    <EyeOff className="w-3 h-3" />
+                    Colapsar
+                  </button>
+                  <button
+                    onClick={() => setSelectedTrace(null)}
+                    className="text-zinc-600 hover:text-zinc-300 p-1 rounded hover:bg-white/5 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Resumen de métricas */}
+              <div className="flex items-center gap-4 mt-3">
+                <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                  <Clock className="w-3 h-3 text-cyan-500/50" />
+                  <span className="text-zinc-600">Total:</span>
+                  <span
+                    className={
+                      selectedTrace.execution_time_ms > 800
+                        ? "text-red-400 font-bold"
+                        : selectedTrace.execution_time_ms > 300
+                          ? "text-amber-400 font-semibold"
+                          : "text-emerald-400"
+                    }
+                  >
+                    {selectedTrace.execution_time_ms.toFixed(2)}ms
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                  <CircleDot className="w-3 h-3 text-violet-500/50" />
+                  <span className="text-zinc-600">Spans:</span>
+                  <span className="text-zinc-400">
+                    {countSpans(selectedTrace.spans || [])}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px] font-mono">
+                  <Zap className="w-3 h-3 text-amber-500/50" />
+                  <span className="text-zinc-600">Status:</span>
+                  <span
+                    className={
+                      selectedTrace.status_code >= 400
+                        ? "text-red-400 font-bold"
+                        : "text-emerald-400"
+                    }
+                  >
+                    {selectedTrace.status_code || "N/A"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Waterfall header */}
+            <div className="flex-shrink-0 flex items-center gap-2 py-1.5 px-3 border-b border-white/[0.04] bg-[#0c0c0e]">
+              <div className="w-5 flex-shrink-0" />
+              <div className="flex-1 text-[9px] font-mono text-zinc-600 uppercase tracking-wider">
+                Span
+              </div>
+              <div className="w-48 flex-shrink-0 text-[9px] font-mono text-zinc-600 uppercase tracking-wider text-center">
+                Timeline
+              </div>
+              <div className="w-20 flex-shrink-0 text-[9px] font-mono text-zinc-600 uppercase tracking-wider text-right">
+                Duración
+              </div>
+            </div>
+
+            {/* Spans */}
+            <div className="flex-1 overflow-y-auto">
+              {selectedTrace.spans && selectedTrace.spans.length > 0 ? (
+                selectedTrace.spans.map((span) => (
+                  <SpanNode
+                    key={span.id}
+                    span={span}
+                    depth={0}
+                    traceStartTime={selectedTrace.start_time}
+                    totalDurationMs={selectedTrace.execution_time_ms}
+                    expandedSpans={expandedSpans}
+                    toggleSpan={toggleSpan}
+                  />
+                ))
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-zinc-700">
+                  <GitBranch className="w-6 h-6 mb-2" />
+                  <span className="text-xs font-mono">
+                    Sin spans en esta traza
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
