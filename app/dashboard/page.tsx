@@ -541,7 +541,8 @@ function EmptyState({ apiKey }: { apiKey: string | null }) {
   };
 
   const steps = [
-    { label: "1. Install the SDKs:", code: "npm install tracepilot-openai tracepilot-vercel" },
+    { label: "1. Install the SDK (OpenAI):", code: "npm install tracepilot-openai" },
+    { label: "   or (Vercel AI SDK):", code: "npm install tracepilot-vercel" },
     { label: "2. Wrap your AI calls (1 line change):", code: `const { result } = await traceOpenAI(tp, openai, {\n  model: "gpt-4o",\n  messages: [{ role: "user", content: "Hello" }]\n})` },
   ];
 
@@ -585,8 +586,8 @@ function EmptyState({ apiKey }: { apiKey: string | null }) {
             </h4>
             <div className="relative group/code flex items-center justify-between border border-cyan-500/10 hover:border-cyan-500/30 bg-[#040507] rounded-lg p-3.5 w-full transition-all duration-200">
               <pre className="text-left font-mono text-[10.5px] text-cyan-300/85 overflow-x-auto pr-12 scrollbar-none whitespace-pre-wrap break-all">{apiKey}</pre>
-              <button onClick={() => handleCopy(apiKey, 2)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-mono font-bold bg-[#0d0f14] hover:bg-neutral-900 border border-white/[0.08] hover:border-white/[0.18] text-neutral-400 hover:text-white px-2.5 py-1 rounded cursor-pointer transition-all duration-150 active:scale-95">
-                {copiedIndex === 2 ? "Copied! ✓" : "Copy"}
+              <button onClick={() => handleCopy(apiKey, 3)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-mono font-bold bg-[#0d0f14] hover:bg-neutral-900 border border-white/[0.08] hover:border-white/[0.18] text-neutral-400 hover:text-white px-2.5 py-1 rounded cursor-pointer transition-all duration-150 active:scale-95">
+                {copiedIndex === 3 ? "Copied! ✓" : "Copy"}
               </button>
             </div>
           </div>
