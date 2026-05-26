@@ -63,8 +63,13 @@ const DiscordIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const VercelLogo = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 76 65" fill="currentColor">
+    <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
+  </svg>
+);
+
 // ─── AJUSTE 1: Trust Platform Logos — paquetes npm reales ─────────────────────
-// Antes: solo decía "Compatible". Ahora: muestra el paquete instalable hoy mismo.
 const TRUST_PLATFORMS = [
   { name: 'OpenAI', desc: 'npm install tracepilot-openai', isInstallable: true },
   { name: 'Vercel AI SDK', desc: 'npm install tracepilot-vercel', isInstallable: true },
@@ -108,12 +113,12 @@ const PROBLEM_CARDS = [
   }
 ];
 
-// ─── How It Works — AJUSTE 3: badge "1-Line Integration" en paso 1 ────────────
+// ─── How It Works ──────────────────────────────────────────────────────────────
 const HOW_IT_WORKS = [
   {
     icon: Code2,
     title: '1. Drop-in Integration',
-    badge: '1-Line',                         // ← nuevo badge
+    badge: '1-Line',
     desc: 'Replace your existing OpenAI or Vercel AI call with our drop-in wrapper. Zero refactoring. Full observability instantly active in production.'
   },
   {
@@ -183,7 +188,6 @@ const T = {
     heroDesc: 'TracePilot lets engineering teams replay, fork, inspect and repair autonomous AI workflows in real time. Git-style branching meets runtime observability.',
     ctaGetStarted: 'Get Free API Key',
     ctaViewLive: 'View Live Replay',
-    // ─── SEO: más descriptivo que "NATIVE INTEGRATION STANDARDS"
     integrationStd: 'OFFICIAL PACKAGES — INSTALL TODAY:',
     
     navProblem: 'The Problem',
@@ -204,6 +208,17 @@ const T = {
     howTitle: 'Three Steps to Full Agent Control',
     dxTitle: 'Built for Production AI Teams',
     dxDesc: 'Minimal setup. Maximum integration support. Hook models directly, stream variables, and export traces dynamically using high-scale standards.',
+    
+    // ─── Deploy to Vercel
+    deployBadge: 'DEPLOY IN 1 CLICK',
+    deployTitle: 'Start in 2 Minutes',
+    deployDesc: 'Don\'t build from scratch. Deploy our Next.js AI Agent template directly to Vercel with TracePilot included by default.',
+    deployBtn: 'Deploy with Vercel',
+    deployGithub: 'View on GitHub',
+    deployOr: 'or',
+    deployEnvHint: 'Auto-configured env vars',
+    deployIncludesPrefix: 'Includes',
+    deployIncludes: 'TracePilot tracing, OpenAI agent, streaming UI, API key management',
     
     portalBadge: 'Instant Access',
     portalCreator: 'Developer Profiles',
@@ -271,6 +286,17 @@ const T = {
     howTitle: 'Tres Pasos para el Control Total del Agente',
     dxTitle: 'Creado para Equipos de IA en Producción',
     dxDesc: 'Configuración mínima. Máximo soporte de integración. Conecta modelos directamente, transmite variables y exporta trazas dinámicamente.',
+    
+    // ─── Deploy to Vercel
+    deployBadge: 'DESPLIEGUE EN 1 CLIC',
+    deployTitle: 'Comienza en 2 Minutos',
+    deployDesc: 'No construyas desde cero. Despliega nuestra plantilla de Agente de IA con Next.js directamente a Vercel con TracePilot incluido por defecto.',
+    deployBtn: 'Desplegar con Vercel',
+    deployGithub: 'Ver en GitHub',
+    deployOr: 'o',
+    deployEnvHint: 'Variables de entorno auto-configuradas',
+    deployIncludesPrefix: 'Incluye',
+    deployIncludes: 'trazado TracePilot, agente OpenAI, UI streaming, gestión de API keys',
     
     portalBadge: 'Acceso Inmediato',
     portalCreator: 'Perfiles de Desarrollador',
@@ -573,7 +599,6 @@ export default function App() {
                 <span>{d.heroSub}</span>
               </div>
 
-              {/* SEO: h1 con palabras clave principales */}
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold font-display leading-none tracking-tight text-white">
                 {d.heroTitle_1}<span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 font-bold">{d.heroTitle_2}</span>
               </h1>
@@ -598,7 +623,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* ─── AJUSTE 1: Trust Platform Logos — paquetes npm reales ──────── */}
+              {/* ─── Trust Platform Logos ──────────────────────────────────────── */}
               <div className="pt-8 border-t border-neutral-900">
                 <span className="text-[10px] font-mono font-bold text-neutral-500 uppercase tracking-widest block mb-3.5">
                   {d.integrationStd}
@@ -608,12 +633,10 @@ export default function App() {
                     <div key={plat.name} className="flex flex-col">
                       <span className="text-xs font-mono font-bold text-neutral-300">{plat.name}</span>
                       {plat.isInstallable ? (
-                        // Paquete real: se muestra como código con color de acento
                         <span className="text-[10px] font-mono text-cyan-500/80 mt-0.5 bg-cyan-950/20 px-1.5 py-0.5 rounded border border-cyan-900/30 inline-block w-fit">
                           {plat.desc}
                         </span>
                       ) : (
-                        // Coming soon: estilo atenuado
                         <span className="text-[10px] font-mono text-neutral-600 italic mt-0.5">
                           {plat.desc}
                         </span>
@@ -748,7 +771,6 @@ export default function App() {
         </section>
 
         {/* ─── SECTION 4 — HOW IT WORKS ────────────────────────────────────────── */}
-        {/* AJUSTE 3: badge "1-Line Integration" en la tarjeta del paso 1 */}
         <section id="how-it-works" className="py-20 border-t border-neutral-900 bg-neutral-950/20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative" aria-labelledby="howitworks-heading">
           <div className="absolute inset-0 bg-dot-pattern opacity-10 pointer-events-none" />
           <div className="text-center max-w-2xl mx-auto mb-16 space-y-3">
@@ -775,7 +797,6 @@ export default function App() {
                     <div className="w-12 h-12 bg-neutral-900 rounded-xl border border-neutral-800 flex items-center justify-center">
                       <IconObj className="w-5 h-5 text-cyan-400" />
                     </div>
-                    {/* ← Badge "1-Line" solo en el paso 1 */}
                     {displayBadge && (
                       <span className="inline-flex items-center space-x-1 bg-emerald-950/60 border border-emerald-800/40 text-emerald-400 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase tracking-wider">
                         <Zap className="w-2.5 h-2.5" />
@@ -795,8 +816,7 @@ export default function App() {
             })}
           </div>
 
-          {/* ─── AJUSTE 2: Nuevo snippet de código drop-in ───────────────────── */}
-          {/* Reemplaza el concepto de "reescribe tu código" por "una línea y listo" */}
+          {/* ─── Code snippet drop-in ──────────────────────────────────────────── */}
           <div className="mt-12 bg-[#050505] border border-neutral-900 rounded-xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-neutral-900 bg-neutral-950/60">
               <div className="flex items-center space-x-2">
@@ -814,7 +834,6 @@ export default function App() {
               </div>
             </div>
             <div className="p-5 font-mono text-xs leading-relaxed overflow-x-auto">
-              {/* Antes — viejo SDK Core */}
               <div className="mb-4">
                 <div className="text-[10px] text-neutral-600 uppercase tracking-widest mb-2 font-bold">
                   {lang === 'es' ? '// ❌ Antes — SDK Core manual (requería refactorizar)' : '// ❌ Before — Manual Core SDK (required refactoring)'}
@@ -827,10 +846,8 @@ export default function App() {
 }, prompt);`}</pre>
               </div>
 
-              {/* Separador */}
               <div className="border-t border-neutral-900 my-4" />
 
-              {/* Después — nuevo paquete drop-in */}
               <div>
                 <div className="text-[10px] text-emerald-500/80 uppercase tracking-widest mb-2 font-bold">
                   {lang === 'es' ? '// ✅ Ahora — tracepilot-openai (cambia 1 línea, ya está)' : '// ✅ Now — tracepilot-openai (change 1 line, done)'}
@@ -870,6 +887,92 @@ export default function App() {
                   <span className="text-emerald-400"> 'tracepilot-vercel'</span>
                   <span className="text-neutral-300">;</span>
                 </pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── SECTION: DEPLOY TO VERCEL ─────────────────────────────────────── */}
+        <section className="py-20 border-t border-neutral-900 bg-gradient-to-b from-[#080808] to-[#030303] max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative overflow-hidden" aria-label="Deploy to Vercel">
+          {/* Decorative glow — Vercel-inspired white/cyan blend */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[260px] bg-white/[0.015] blur-[120px] rounded-full pointer-events-none" />
+          <div className="absolute top-1/2 left-1/3 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[200px] bg-cyan-950/15 blur-[100px] rounded-full pointer-events-none" />
+
+          <div className="relative z-10 max-w-3xl mx-auto">
+            {/* Card container */}
+            <div className="bg-[#060606] border border-neutral-800/80 rounded-2xl overflow-hidden relative group">
+              {/* Top gradient accent bar — Vercel-inspired */}
+              <div className="h-[2px] bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+              
+              <div className="p-8 sm:p-12 text-center space-y-8">
+                {/* Badge */}
+                <div className="flex justify-center">
+                  <span className="inline-flex items-center space-x-2 bg-white/5 border border-neutral-800 text-neutral-300 px-3.5 py-1.5 rounded-full text-[11px] font-mono tracking-wider font-bold uppercase">
+                    <VercelLogo className="w-3 h-3 text-white" />
+                    <span>{d.deployBadge}</span>
+                  </span>
+                </div>
+
+                {/* Title */}
+                <h2 className="text-3xl sm:text-4xl font-bold font-display text-white tracking-tight leading-tight">
+                  {d.deployTitle}
+                </h2>
+
+                {/* Description */}
+                <p className="text-sm text-neutral-400 leading-relaxed font-sans max-w-lg mx-auto">
+                  {d.deployDesc}
+                </p>
+
+                {/* CTA Buttons */}
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-2">
+                  {/* Deploy with Vercel — primary CTA, Vercel-style white button */}
+                  <a
+                    href="https://vercel.com/new/clone?repository-url=https://github.com/jayfelipe/nextjs-ai-agent-tracepilot&env=TRACEPILOT_API_KEY,OPENAI_API_KEY&envDescription=API%20Keys%20needed%20for%20the%20AI%20Agent&envLink=https%3A%2F%2Ftracepilotai.com&project-name=nextjs-ai-agent-tracepilot&repository-name=nextjs-ai-agent-tracepilot"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group/btn bg-white hover:bg-neutral-100 text-black font-bold text-sm px-8 py-3.5 rounded-lg transition-all shadow-[0_0_24px_rgba(255,255,255,0.06)] hover:shadow-[0_0_32px_rgba(255,255,255,0.1)] flex items-center space-x-2.5 font-sans active:scale-[0.98]"
+                  >
+                    <VercelLogo className="w-4 h-4 text-black" />
+                    <span>{d.deployBtn}</span>
+                    <ArrowUpRight className="w-4 h-4 text-black/40 group-hover/btn:text-black/60 transition" />
+                  </a>
+
+                  {/* Separator */}
+                  <span className="text-[10px] text-neutral-600 font-mono uppercase tracking-widest hidden sm:block">{d.deployOr}</span>
+
+                  {/* View on GitHub — secondary CTA */}
+                  <a
+                    href="https://github.com/jayfelipe/nextjs-ai-agent-tracepilot"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-sm px-6 py-3.5 rounded-lg border border-neutral-800 hover:border-neutral-700 transition-all flex items-center space-x-2 font-sans font-medium active:scale-[0.98]"
+                  >
+                    <Github className="w-4 h-4" />
+                    <span>{d.deployGithub}</span>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-neutral-600 group-hover:text-neutral-400 transition" />
+                  </a>
+                </div>
+
+                {/* Environment variables indicator */}
+                <div className="pt-4 border-t border-neutral-800/60">
+                  <div className="flex flex-col items-center space-y-3">
+                    <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest font-bold">{d.deployEnvHint}</span>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <span className="inline-flex items-center space-x-1.5 bg-neutral-900/80 border border-neutral-800 px-3 py-1.5 rounded-md">
+                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                        <span className="text-[11px] font-mono text-cyan-400/80 font-semibold">TRACEPILOT_API_KEY</span>
+                      </span>
+                      <span className="text-neutral-700 font-mono text-xs">+</span>
+                      <span className="inline-flex items-center space-x-1.5 bg-neutral-900/80 border border-neutral-800 px-3 py-1.5 rounded-md">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-[11px] font-mono text-emerald-400/80 font-semibold">OPENAI_API_KEY</span>
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-neutral-600 font-sans max-w-md leading-relaxed mt-1">
+                      <span className="font-mono text-neutral-500 font-bold">{d.deployIncludesPrefix}:</span> {d.deployIncludes}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
